@@ -69,9 +69,9 @@ const ZHI_TO_ELEMENT: Record<string, string> = {
 };
 
 /**
- * 计算五行能量得分
+ * 获取五行分布（返回五行数量统计）
  */
-function calculateFiveElementsScore(eightChar: any): number {
+function getFiveElementsDistribution(eightChar: any): Record<string, number> {
   const elements: Record<string, number> = {
     木: 0,
     火: 0,
@@ -98,6 +98,15 @@ function calculateFiveElementsScore(eightChar: any): number {
       elements[ZHI_TO_ELEMENT[zhi]] += 1;
     }
   });
+
+  return elements;
+}
+
+/**
+ * 计算五行能量得分
+ */
+function calculateFiveElementsScore(eightChar: any): number {
+  const elements = getFiveElementsDistribution(eightChar);
 
   // 计算加权得分
   let score = 0;
@@ -195,7 +204,7 @@ function getLiunian(birthDate: Date, age: number): any {
 }
 
 /**
- * 计算天干地支的相生相克关系
+ * 计算天干地支的相生相克关系（更精确的计算）
  */
 function calculateGanZhiRelation(birthGan: string, currentGan: string): number {
   // 天干相生：甲乙生丙丁，丙丁生戊己，戊己生庚辛，庚辛生壬癸，壬癸生甲乙
@@ -208,12 +217,93 @@ function calculateGanZhiRelation(birthGan: string, currentGan: string): number {
   const birthOrder = ganOrder[birthGan] ?? 0;
   const currentOrder = ganOrder[currentGan] ?? 0;
   
-  // 相生：+0.1，相克：-0.1，相同：+0.05
+  // 相生：+0.15，相克：-0.15，相同：+0.08，比和：+0.05
   const diff = (currentOrder - birthOrder + 10) % 10;
-  if (diff === 2 || diff === 3) return 1.1; // 相生
-  if (diff === 6 || diff === 7) return 0.9; // 相克
-  if (diff === 0 || diff === 1) return 1.05; // 相同或比和
+  if (diff === 2 || diff === 3) return 1.15; // 相生（流年生日主）
+  if (diff === 6 || diff === 7) return 0.85; // 相克（流年克日主）
+  if (diff === 0) return 1.08; // 相同
+  if (diff === 1) return 1.05; // 比和（同五行）
+  if (diff === 4 || diff === 5) return 0.92; // 被克（日主克流年，但流年强）
   return 1.0; // 中性
+}
+
+/**
+ * 计算地支关系（更精确）
+ */
+function calculateZhiRelation(birthZhi: string, currentZhi: string): number {
+  const zhiOrder: Record<string, number> = {
+    子: 0, 丑: 1, 寅: 2, 卯: 3, 辰: 4, 巳: 5,
+    午: 6, 未: 7, 申: 8, 酉: 9, 戌: 10, 亥: 11,
+  };
+  
+  const birthOrder = zhiOrder[birthZhi] ?? 0;
+  const currentOrder = zhiOrder[currentZhi] ?? 0;
+  
+  // 地支相合：子丑合、寅亥合、卯戌合、辰酉合、巳申合、午未合
+  const hePairs: [number, number][] = [[0, 1], [2, 11], [3, 10], [4, 9], [5, 8], [6, 7]];
+  const isHe = hePairs.some(([a, b]) => 
+    (birthOrder === a && currentOrder === b) || (birthOrder === b && currentOrder === a)
+  );
+  
+  // 地支相冲：子午冲、丑未冲、寅申冲、卯酉冲、辰戌冲、巳亥冲
+  const chongPairs: [number, number][] = [[0, 6], [1, 7], [2, 8], [3, 9], [4, 10], [5, 11]];
+  const isChong = chongPairs.some(([a, b]) => 
+    (birthOrder === a && currentOrder === b) || (birthOrder === b && currentOrder === a)
+  );
+  
+  if (isHe) return 1.1; // 相合：+10%
+  if (isChong) return 0.9; // 相冲：-10%
+  if (birthOrder === currentOrder) return 1.05; // 相同：+5%
+  return 1.0; // 中性
+}
+
+/**
+ * 计算五行匹配度（流年五行与出生五行的匹配程度）
+ */
+function calculateFiveElementsMatch(
+  birthElements: Record<string, number>,
+  liunianElements: Record<string, number>
+): number {
+  // 计算五行匹配度
+  // 如果流年五行与出生五行相生或相同，则匹配度高
+  // 如果相克，则匹配度低
+  
+  let matchScore = 0;
+  const totalBirth = Object.values(birthElements).reduce((a, b) => a + b, 0);
+  const totalLiunian = Object.values(liunianElements).reduce((a, b) => a + b, 0);
+  
+  if (totalBirth === 0 || totalLiunian === 0) return 1.0;
+  
+  // 五行相生关系：木生火，火生土，土生金，金生水，水生木
+  const elementOrder: Record<string, number> = { 木: 0, 火: 1, 土: 2, 金: 3, 水: 4 };
+  const elementNames = ['木', '火', '土', '金', '水'];
+  
+  for (const element of elementNames) {
+    const birthCount = birthElements[element] || 0;
+    const liunianCount = liunianElements[element] || 0;
+    
+    // 相同五行：+1
+    if (liunianCount > 0 && birthCount > 0) {
+      matchScore += 1;
+    }
+    
+    // 相生关系：+0.5
+    const birthOrder = elementOrder[element];
+    const nextElement = elementNames[(birthOrder + 1) % 5]; // 被生的五行
+    if (liunianElements[nextElement] > 0 && birthCount > 0) {
+      matchScore += 0.5;
+    }
+    
+    // 相克关系：-0.3
+    const prevElement = elementNames[(birthOrder + 3) % 5]; // 被克的五行
+    if (liunianElements[prevElement] > 0 && birthCount > 0) {
+      matchScore -= 0.3;
+    }
+  }
+  
+  // 归一化到 0.85-1.15 范围
+  const normalizedScore = 0.85 + (matchScore / 10) * 0.3;
+  return Math.max(0.85, Math.min(1.15, normalizedScore));
 }
 
 /**
@@ -294,53 +384,105 @@ export function generateLifeData(birthday: string): KLineData[] {
   const basePrice = Math.max(initialScore * 10, 100); // 将得分放大10倍作为基础价格
   let previousClose = basePrice;
 
+  // 预计算所有年龄的得分，用于更准确的计算
+  const scores: number[] = [];
   for (let age = 0; age < 80; age++) {
-    // 计算当前年龄的能量得分
-    const currentScore = calculateAgeScore(birthEightChar, age, birthDate);
-    const previousScore = age > 0 
-      ? calculateAgeScore(birthEightChar, age - 1, birthDate)
-      : initialScore;
-    
-    // 计算得分变化率（相对于上一年）
-    const scoreChange = (currentScore - previousScore) / previousScore;
-    
-    // 添加随机波动（模拟市场波动，但受得分变化影响）
-    const baseVolatility = 0.15; // 基础波动率 15%
-    const volatility = baseVolatility + Math.abs(scoreChange) * 0.1; // 得分变化大时波动更大
-    const randomFactor = 1 + (Math.random() - 0.5) * volatility;
+    scores[age] = calculateAgeScore(birthEightChar, age, birthDate);
+  }
 
-    // 计算目标价格（基于得分变化和随机波动）
-    const targetPrice = previousClose * (1 + scoreChange * 2) * randomFactor;
+  for (let age = 0; age < 80; age++) {
+    // 获取当前年龄和上一年的得分
+    const currentScore = scores[age];
+    const previousScore = age > 0 ? scores[age - 1] : initialScore;
     
-    // 开盘价：基于上一年的收盘价，有轻微波动（-2% 到 +2%）
-    const open = previousClose * (0.98 + Math.random() * 0.04);
+    // 计算得分变化率（这是核心，完全基于计算，无随机）
+    const scoreChangeRatio = (currentScore - previousScore) / previousScore;
     
-    // 收盘价：基于目标价格，但受开盘价约束，形成合理的涨跌
-    // 涨跌幅度：-15% 到 +20%，但受得分变化影响
-    const baseChange = scoreChange * 3; // 得分变化的影响放大3倍
-    const randomChange = (Math.random() - 0.3) * 0.35; // 随机变化，偏向上涨
-    const totalChange = baseChange + randomChange;
-    const close = open * (1 + Math.max(-0.15, Math.min(0.20, totalChange)));
+    // 获取流年信息，用于更精确的计算
+    const liunian = getLiunian(birthDate, age);
+    const birthDayGan = birthEightChar.getDay()[0];
+    const birthDayZhi = birthEightChar.getDay()[1];
+    const liunianYearGan = liunian.getYear()[0];
+    const liunianYearZhi = liunian.getYear()[1];
     
-    // 确保收盘价不会异常
-    const safeClose = Math.max(close, open * 0.6);
+    // 天干关系
+    const ganZhiFactor = calculateGanZhiRelation(birthDayGan, liunianYearGan);
     
-    // 最高价和最低价：基于开盘和收盘，有合理的波动范围
-    const priceRange = Math.abs(safeClose - open) * 0.5;
-    const high = Math.max(open, safeClose) + priceRange * (1 + Math.random() * 0.5);
-    const low = Math.min(open, safeClose) - priceRange * (0.5 + Math.random() * 0.5);
+    // 地支关系
+    const zhiFactor = calculateZhiRelation(birthDayZhi, liunianYearZhi);
     
-    // 确保价格合理
-    const safeHigh = Math.max(high, Math.max(open, safeClose) * 1.02);
-    const safeLow = Math.max(low, Math.min(open, safeClose) * 0.95);
+    // 获取大运信息
+    const { dayunFactor } = getDayunInfo(birthEightChar, age);
+    
+    // 计算流年与日主的五行关系
+    const liunianFiveElements = getFiveElementsDistribution(liunian);
+    const birthFiveElements = getFiveElementsDistribution(birthEightChar);
+    const fiveElementsMatch = calculateFiveElementsMatch(birthFiveElements, liunianFiveElements);
+    
+    // 计算流年十神对日主的影响
+    const liunianShiShen = liunian.getYearShiShenGan();
+    const shiShenWeight = TEN_GODS_WEIGHT[liunianShiShen] || 1.0;
+    const shiShenFactor = 0.9 + (shiShenWeight - 1.0) * 0.2; // 0.9-1.1 的波动
+    
+    // 开盘价：基于上一年的收盘价，考虑流年天干地支的综合影响
+    const openAdjustment = ((ganZhiFactor - 1.0) * 0.015 + (zhiFactor - 1.0) * 0.01); // 天干影响1.5%，地支影响1%
+    const open = previousClose * (1 + openAdjustment);
+    
+    // 收盘价：完全基于得分变化率、大运、流年、天干地支、五行、十神关系计算
+    // 得分变化的影响系数（最重要）
+    const scoreImpact = scoreChangeRatio * 3.0; // 得分变化放大3倍
+    
+    // 大运影响（相对于1.0的偏差）
+    const dayunImpact = (dayunFactor - 1.0) * 0.35; // 大运影响35%
+    
+    // 流年天干影响（相对于1.0的偏差）
+    const ganZhiImpact = (ganZhiFactor - 1.0) * 0.25; // 天干影响25%
+    
+    // 流年地支影响
+    const zhiImpact = (zhiFactor - 1.0) * 0.15; // 地支影响15%
+    
+    // 五行匹配度影响
+    const fiveElementsImpact = (fiveElementsMatch - 1.0) * 0.18; // 五行影响18%
+    
+    // 十神影响
+    const shiShenImpact = (shiShenFactor - 1.0) * 0.12; // 十神影响12%
+    
+    // 综合涨跌幅度（完全基于计算，无随机）
+    const totalChange = scoreImpact + dayunImpact + ganZhiImpact + zhiImpact + fiveElementsImpact + shiShenImpact;
+    
+    // 限制涨跌幅度在合理范围内（-22% 到 +28%）
+    const safeChange = Math.max(-0.22, Math.min(0.28, totalChange));
+    const close = open * (1 + safeChange);
+    
+    // 最高价和最低价：基于涨跌幅度和波动性计算（非随机）
+    // 波动性基于得分变化的绝对值、天干地支关系、五行匹配度
+    const baseVolatility = Math.abs(scoreChangeRatio) * 0.25;
+    const ganZhiVolatility = Math.abs(ganZhiFactor - 1.0) * 0.15;
+    const zhiVolatility = Math.abs(zhiFactor - 1.0) * 0.1;
+    const volatility = baseVolatility + ganZhiVolatility + zhiVolatility + 0.04; // 最小4%波动
+    
+    // 限制波动率在合理范围（4%-40%）
+    const safeVolatility = Math.max(0.04, Math.min(0.40, volatility));
+    
+    // 最高价：收盘价或开盘价中较高的，加上波动
+    const highBase = Math.max(open, close);
+    const high = highBase * (1 + safeVolatility * 0.7); // 最高价上浮波动率的70%
+    
+    // 最低价：收盘价或开盘价中较低的，减去波动
+    const lowBase = Math.min(open, close);
+    const low = lowBase * (1 - safeVolatility * 0.6); // 最低价下浮波动率的60%
+    
+    // 确保价格合理（防止异常值）
+    const safeHigh = Math.max(high, Math.max(open, close) * 1.01);
+    const safeLow = Math.max(low, Math.min(open, close) * 0.90);
 
     // 更新上一年的收盘价（用于下一年计算）
-    previousClose = safeClose;
+    previousClose = close;
 
     // ECharts K 线格式：[开盘, 收盘, 最低, 最高]
     kLineData.push([
       Math.round(open * 100) / 100,
-      Math.round(safeClose * 100) / 100,
+      Math.round(close * 100) / 100,
       Math.round(safeLow * 100) / 100,
       Math.round(safeHigh * 100) / 100,
     ]);

@@ -123,7 +123,7 @@ function ResultContent() {
               基于您的生辰八字，通过五行能量、十神强弱、大运流年等维度计算生成的人生指数走势
             </p>
           </div>
-          <LifeKLine data={kLineData} name={name} />
+          <LifeKLine data={kLineData} name={name} birthday={birthday} />
         </div>
 
         {/* 分享卡片 */}

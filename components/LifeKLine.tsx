@@ -7,6 +7,7 @@ import { KLineData } from "@/lib/engine";
 interface LifeKLineProps {
   data: KLineData[];
   name?: string;
+  birthday?: string; // 生日，用于计算年份
 }
 
 /**
@@ -205,9 +206,17 @@ function calculateStatistics(data: KLineData[]) {
   };
 }
 
-export default function LifeKLine({ data, name = "人生指数" }: LifeKLineProps) {
+export default function LifeKLine({ data, name = "人生指数", birthday }: LifeKLineProps) {
   // 计算统计数据
   const stats = useMemo(() => calculateStatistics(data), [data]);
+  
+  // 计算出生年份
+  const birthYear = useMemo(() => {
+    if (!birthday) return null;
+    const [datePart] = birthday.split(' ');
+    const [year] = datePart.split('-').map(Number);
+    return year;
+  }, [birthday]);
   
   // 准备 ECharts 数据格式
   const chartData = useMemo(() => {
@@ -216,12 +225,22 @@ export default function LifeKLine({ data, name = "人生指数" }: LifeKLineProp
       const [open, close, low, high] = data[age] || [100, 100, 100, 100];
       return [open, close, low, high];
     });
+    
+    // 生成 X 轴标签：显示年龄和年份
+    const xAxisLabels = ages.map((age) => {
+      if (birthYear !== null) {
+        const year = birthYear + age;
+        return `${age}岁\n${year}年`;
+      }
+      return `${age}岁`;
+    });
 
     return {
       ages,
       kLineData,
+      xAxisLabels,
     };
-  }, [data]);
+  }, [data, birthYear]);
 
   // ECharts 配置选项
   const option = useMemo(() => {
@@ -236,8 +255,8 @@ export default function LifeKLine({ data, name = "人生指数" }: LifeKLineProp
       },
       xAxis: {
         type: "category",
-        data: chartData.ages,
-        name: "年龄",
+        data: chartData.xAxisLabels,
+        name: "年龄 / 年份",
         nameLocation: "middle",
         nameGap: 30,
         nameTextStyle: {
@@ -252,8 +271,21 @@ export default function LifeKLine({ data, name = "人生指数" }: LifeKLineProp
         },
         axisLabel: {
           color: "#888",
-          fontSize: 12,
+          fontSize: 11,
           fontFamily: "monospace",
+          interval: 4, // 每5年显示一次标签（0, 5, 10, 15...）
+          formatter: (value: string) => {
+            // 提取年龄
+            const ageMatch = value.match(/(\d+)岁/);
+            const age = ageMatch ? parseInt(ageMatch[1]) : 0;
+            
+            // 显示年龄和年份
+            if (birthYear !== null) {
+              const year = birthYear + age;
+              return `${age}岁\n${year}年`;
+            }
+            return `${age}岁`;
+          },
         },
         splitLine: {
           show: true,
@@ -314,17 +346,24 @@ export default function LifeKLine({ data, name = "人生指数" }: LifeKLineProp
             return "";
           }
           const param = params[0];
-          const age = param.axisValue as number;
+          const axisValue = param.axisValue as string;
+          // 从标签中提取年龄（可能是 "25岁\n2020年" 或 "25岁" 格式）
+          const ageMatch = axisValue.match(/(\d+)岁/);
+          const age = ageMatch ? parseInt(ageMatch[1]) : 0;
           const value = param.value as number[];
           const [open, close, low, high] = value;
           const isRising = close >= open;
           const changePercent = ((close - open) / open) * 100;
           const event = generateEventPrediction(age, [open, close, low, high]);
+          
+          // 计算年份
+          const year = birthYear !== null ? birthYear + age : null;
+          const yearText = year ? ` (${year}年)` : '';
 
           return `
             <div style="padding: 8px;">
               <div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">
-                ${age} 岁
+                ${age} 岁${yearText}
               </div>
               <div style="margin-bottom: 4px;">
                 <span style="color: #888;">开盘：</span>
@@ -387,7 +426,7 @@ export default function LifeKLine({ data, name = "人生指数" }: LifeKLineProp
         },
       ],
     };
-  }, [chartData]);
+  }, [chartData, birthYear]);
 
   return (
     <div className="w-full h-full">
